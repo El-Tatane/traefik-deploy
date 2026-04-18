@@ -1,0 +1,84 @@
+services:
+  traefik:
+    image: traefik:3.6
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "${LETSENCRYPT_PATH}:/letsencrypt"
+    environment:
+      TRAEFIK_GLOBAL_CHECKNEWVERSION: "false"
+      TRAEFIK_GLOBAL_SENDANONYMOUSUSAGE: "false"
+
+      # API & Dashboard
+      TRAEFIK_API: "true"
+      TRAEFIK_API_DASHBOARD: "true"
+      TRAEFIK_API_DEBUG: "false"
+      TRAEFIK_PING: "true"
+
+      # Logs
+      TRAEFIK_LOG_LEVEL: "WARN"
+      TRAEFIK_LOG_FORMAT: "json"
+
+      # Entrypoints
+      TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: ":80"
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_TO: "websecure"
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_SCHEME: "https"
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_PERMANENT: "true"
+      TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS: ":443"
+      TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS: "true"
+      TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS_CERTRESOLVER: "letsencrypt"
+
+      # Let's Encrypt
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL: "${ACME_EMAIL}"
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_STORAGE: "/letsencrypt/acme.json"
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_TLSCHALLENGE: "true"
+
+      # Docker provider
+      TRAEFIK_PROVIDERS_DOCKER: "true"
+      TRAEFIK_PROVIDERS_DOCKER_ENDPOINT: "unix:///var/run/docker.sock"
+      TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT: "false"
+      TRAEFIK_PROVIDERS_DOCKER_WATCH: "true"
+      TRAEFIK_PROVIDERS_DOCKER_NETWORK: "traefik_network"
+
+    labels:
+      traefik.enable: "true"
+
+      # Dashboard router
+      traefik.http.routers.dashboard.rule: "Host(`traefik.${DOMAIN}`)"
+      traefik.http.routers.dashboard.entrypoints: "websecure"
+      traefik.http.routers.dashboard.tls.certresolver: "letsencrypt"
+      traefik.http.routers.dashboard.service: "api@internal"
+      traefik.http.routers.dashboard.middlewares: "auth,secheaders,ratelimit"
+
+      # Basic auth — generate with:
+      # echo $(htpasswd -nb user password) | sed -e s/\\$/\\$\\$/g
+      traefik.http.middlewares.auth.basicauth.users: "${BASIC_AUTH_USERS}"
+
+      # Security headers
+      traefik.http.middlewares.secheaders.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.secheaders.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.secheaders.headers.stsPreload: "true"
+      traefik.http.middlewares.secheaders.headers.forceSTSHeader: "true"
+      traefik.http.middlewares.secheaders.headers.contentTypeNosniff: "true"
+      traefik.http.middlewares.secheaders.headers.browserXssFilter: "true"
+      traefik.http.middlewares.secheaders.headers.referrerPolicy: "strict-origin-when-cross-origin"
+
+      # Rate limiting (protects the Pi)
+      traefik.http.middlewares.ratelimit.ratelimit.average: "100"
+      traefik.http.middlewares.ratelimit.ratelimit.burst: "50"
+
+    networks:
+      traefik_network:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+networks:
+  traefik_network:
+    external: true
